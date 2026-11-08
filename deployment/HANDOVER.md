@@ -2,6 +2,7 @@
 
 > 生成：2026-11-07 15:00（America/Denver）。给"新对话"里的下一个我读。
 > 原则：**先读本文件，再动手**；本文件之外的东西一律现查，别凭记忆。
+> 同步：本文件已推 GitHub（`github.com/CharlesGGCG/-`，私有，`本地` 分支，`deployment/HANDOVER.md`）。**新会话先 `git -C C:\dsh\repos\surfcore pull origin 本地` 再读本文件**，以 GitHub 版为准。
 
 ## 0. 一句话现状
 
