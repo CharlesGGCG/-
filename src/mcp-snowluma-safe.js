@@ -1200,6 +1200,61 @@ if (cfg.socialV2?.tools?.getImages !== false) {
   );
 }
 
+// ── 语音转写工具（reserved2）：把收到的 QQ 语音转成文字 ─────────────────────
+server.tool(
+  'qq_get_voice_text',
+  '把一条收到的 QQ 语音转成文字（只读，转写依赖 QQ 侧的语音转写结果）。当消息里出现 [语音]、或提示里有【语音】（带 messageId）时调用。二代（reserved2）模式下必须携带会话令牌。极短的语音、或自己发出去的语音可能没有转写文本，返回为空时如实说明，不要编造内容。',
+  {
+    key: z.string().describe('会话 key，格式 group:群号 或 private:QQ号'),
+    messageId: z.union([z.number(), z.string()]).describe('要转写的那条语音的消息 id（QQ 消息 id 可能为负数；二代也可用本地 seq）'),
+    token: z.string().optional().describe('二代会话令牌（reserved2 下必填，见唤醒提示中的【会话令牌】）')
+  },
+  async ({ key, messageId, token }) => {
+    try {
+      const q = new URLSearchParams({ key, messageId: String(messageId) });
+      const data = await agentApi(`/api/voice/text?${q.toString()}`, {
+        headers: token ? { 'x-agent-token': token } : {},
+        timeoutMs: 40000
+      });
+      if (data?.ok && data?.text) {
+        return { content: [{ type: 'text', text: `消息 ${messageId} 的语音转写：${data.text}` }] };
+      }
+      if (data?.ok) {
+        return { content: [{ type: 'text', text: `消息 ${messageId} 没有转写文本：${data?.note || '未找到'}` }] };
+      }
+      return { content: [{ type: 'text', text: `语音转写失败：${data?.error || '未知错误'}` }], isError: true };
+    } catch (error) {
+      return { content: [{ type: 'text', text: `语音转写失败：${error?.message ?? error}` }], isError: true };
+    }
+  }
+);
+
+// ── B站 视频下载工具（reserved2）：分片下到本地绕开 567，再 video_storyboard 读本地文件 ──
+server.tool(
+  'qq_download_bili_video',
+  '把一条 B站 视频分片下载到本地（绕开 B站 对整片下载的 567 风控），返回本地文件路径。拿到路径后，再调用 video_storyboard({ input: "<本地路径>" }) 看画面。参数用 BV 号（从 https://www.bilibili.com/video/BVxxx 里取 BV 开头那 12 位）。',
+  {
+    bv: z.string().describe('视频 BV 号（如 BV11qnx6vEJA）'),
+    token: z.string().optional().describe('二代会话令牌（reserved2 下必填）')
+  },
+  async ({ bv, token }) => {
+    try {
+      const q = new URLSearchParams({ bv: String(bv).trim() });
+      const data = await agentApi(`/api/bili/download?${q.toString()}`, {
+        headers: token ? { 'x-agent-token': token } : {},
+        timeoutMs: 240000
+      });
+      if (data?.ok && data?.path) {
+        const mb = Math.round((Number(data.bytes) || 0) / 1024 / 1024);
+        return { content: [{ type: 'text', text: `已下载到本地：${data.path}（${mb} MB）。接着调用 video_storyboard({ input: "${data.path}" }) 看画面。` }] };
+      }
+      return { content: [{ type: 'text', text: `下载失败：${data?.error || '未知错误'}` }], isError: true };
+    } catch (error) {
+      return { content: [{ type: 'text', text: `下载失败：${error?.message ?? error}` }], isError: true };
+    }
+  }
+);
+
 // ── 表情包体系工具（二代仿真模式） ─────────────────────────────────────────
 if (cfg.socialV2?.sticker?.enabled !== false && cfg.socialV2?.tools?.listStickers !== false) {
   server.tool(
@@ -1285,6 +1340,32 @@ if (cfg.socialV2?.sticker?.enabled !== false && cfg.socialV2?.tools?.sendSticker
     }
   );
 }
+
+// 发送任意图片（本地路径或 http(s) 链接）到 QQ —— 给「大肥鱼表情包」等外部图片库用。
+server.tool(
+  'qq_send_image',
+  '把一张图片（本地文件路径或 http(s) 链接）作为 QQ 图片发送出去。配合 dsh-nekowhale-stickers 的 sticker_send 用：先 sticker_send 拿到表情图片（返回里那行 Markdown 图片的路径），再把路径传给本工具发出去。一条消息只能是一张图；想说的话先用 qq_send_message 单独发。',
+  {
+    key: z.string().describe('会话 key，格式 group:群号 或 private:QQ号'),
+    token: z.string().describe('会话令牌（见唤醒提示中的【会话令牌】）'),
+    file: z.string().describe('本地文件路径或 http(s) 图片链接'),
+    replyToMessageId: z.union([z.number(), z.string()]).optional().describe('要引用/回复的消息 id（非零整数，可为负数，可选）'),
+    atUserId: z.union([z.number(), z.string()]).optional().describe('要 @ 的群成员 QQ 号（群聊可选，私聊不可用）')
+  },
+  async ({ key, token, file, replyToMessageId, atUserId }) => {
+    try {
+      const data = await agentApi('/api/socialV2/send-image', {
+        method: 'POST',
+        body: JSON.stringify({ key, file: String(file), replyToMessageId, atUserId: atUserId ?? null }),
+        headers: { 'x-agent-token': token },
+        timeoutMs: 120000
+      });
+      return { content: [{ type: 'text', text: serializeModelData(data) }] };
+    } catch (error) {
+      return { content: [{ type: 'text', text: `发送图片失败：${error?.message ?? error}` }], isError: true };
+    }
+  }
+);
 
 if (cfg.socialV2?.sticker?.enabled !== false && cfg.socialV2?.tools?.collectSticker !== false) {
   server.tool(

@@ -1,7 +1,7 @@
 // 选题器：照"她自己的偏好"挑今天该看什么。**只读网络**，只写一份「最近推过」备忘。
 //
 // 用法: node feed.mjs [--n 6] [--per 2] [--pages 3] [--recent-days 3] [--seed 2026-10-23]
-//                      [--source all|search|popular|rank|following] [--no-remember] [--json]
+//                      [--source all|search|popular|rank|following|rcmd] [--no-remember] [--json]
 // 数据来源：bili.config.json 的 preferences（like / keywords / weights）
 //          + 日记 / 评论审计表 / 观看历史 / B站 记忆 / 收藏 / 反馈 的「看过」名单。
 //
@@ -124,7 +124,7 @@ const toNum = (value) => safeNumber(String(value ?? '').replace(/,/g, ''))
 
 const pool = []
 let searchRequests = 0
-const plan = searchPlan(enabled, { seed: SEED, pages: [1, 2, 3].slice(0, PAGES) })
+const plan = SOURCE === 'rcmd' ? [] : searchPlan(enabled, { seed: SEED, pages: [1, 2, 3].slice(0, PAGES) })
 for (const item of plan) {
   try {
     const params = wbi({ search_type: 'video', keyword: item.label, order: item.order, page: item.page })
@@ -179,7 +179,22 @@ async function fetchFollowing() {
 try { if (['popular', 'all'].includes(SOURCE)) await fetchPopular() } catch { console.error('（热门源取不到，跳过）') }
 try { if (['rank', 'all'].includes(SOURCE)) await fetchRank() } catch { console.error('（排行源取不到，跳过）') }
 try { if (['following', 'all'].includes(SOURCE)) await fetchFollowing() } catch (e) { console.error(`（关注源取不到，跳过：${String(e.message).slice(0, 60)}）`) }
-console.error(`[来源] ${SOURCE === 'all' ? '搜索 + 热门 + 排行 + 关注' : SOURCE === 'popular' ? '热门' : SOURCE === 'rank' ? '排行' : SOURCE === 'following' ? '关注' : '搜索'}`)
+// 首页推荐流（2026-11 加）：这才是"主人首页被推给什么"的那份数据。需要登录态。
+async function fetchRcmd() {
+  const qs = new URLSearchParams({
+    ps: '20', fresh_type: '3', feed_version: 'V8',
+    fresh_idx: '1', fresh_idx_1h: '1', homepage_ver: '1', brush: '0',
+  })
+  const j = await (await fetch(`https://api.bilibili.com/x/web-interface/index/top/feed/rcmd?${qs}`, { headers: H })).json()
+  if (j?.code !== 0) throw new Error(`code=${j?.code} ${j?.message ?? ''}`)
+  for (const it of (j?.data?.item ?? [])) {
+    if (!it?.bvid || (it?.goto && it.goto !== 'av')) continue
+    pool.push({ bv: String(it.bvid), t: String(it.title ?? '').replace(/<[^>]+>/g, ''), d: Number(it.duration ?? 0),
+      dm: toNum(it.stat?.danmaku), play: toNum(it.stat?.view), up: String(it.owner?.name ?? ''), kw: '推荐' })
+  }
+}
+try { if (['rcmd', 'all'].includes(SOURCE)) await fetchRcmd() } catch (e) { console.error(`（推荐流取不到，跳过：${String(e.message).slice(0, 80)}）`) }
+console.error(`[来源] ${SOURCE === 'all' ? '搜索 + 热门 + 排行 + 关注 + 推荐' : SOURCE === 'popular' ? '热门' : SOURCE === 'rank' ? '排行' : SOURCE === 'following' ? '关注' : SOURCE === 'rcmd' ? '首页推荐' : '搜索'}`)
 
 // ── ④ 反馈回流（2026-10-20 加）────────────────────────────────────────────
 //   feedback.json 里 kind='like' 的事件带 videoTitle → 对被赞视频【标题相似】的候选加权
@@ -226,7 +241,7 @@ const candidates = recentFiltered.map((x) => {
   return { ...x, _hits: hits, _score: candidateScore(x, hits, boostOf(x.t)) }
 })
 
-const genericCap = enabled.length ? (Number.isFinite(Number(opt.generic)) ? Number(opt.generic) : 1) : N
+const genericCap = SOURCE === 'rcmd' ? N : (SOURCE === 'all' ? 2 : (enabled.length ? (Number.isFinite(Number(opt.generic)) ? Number(opt.generic) : 1) : N))
 const selection = selectDiverse(candidates, enabled, { n: N, perPref: PER, generic: genericCap, seed: SEED })
 
 // ── ⑥ 记住「推过但没看」的，避免明晚原样再来 ─────────────────────────────

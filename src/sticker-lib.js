@@ -301,7 +301,8 @@ export function buildStickerStrategyHint() {
     '- 发送：用 qq_send_sticker，stickerId 可以直接写编号（"#03" 或 "3"）；一条消息只能是一张表情，不能在同一气泡里附带文字；想说的话先用 qq_send_message / qq_reply 作为单独气泡发出，再单独发表情。需要引用/点名时传 replyToMessageId / atUserId（群聊）。',
     '- 拿不准时：如果【表情匹配】给的分 ≥0.7，说明情绪和画面都对得上，发那张通常比把同一句话再说一遍更自然。对方在复读台词、玩梗、撒娇、被吐槽的时候尤其如此——发一张对应的表情是「接梗」，不算嘲讽/敷衍；文字和表情是两条独立消息，可以都发。',
     '- 不要：在严肃/正式/敏感话题硬塞表情；不要每次都用同一个；不要一条消息里塞多个表情；不要把文字和表情混在同一个气泡里；不要把表情包当回复的唯一内容（偶尔可以，但别让群友觉得你在敷衍）。',
-    '- 学习：看到新表情不确定含义时，先用 qq_get_sticker_image 看图，再用 qq_sticker_note 写下 emotion/content/keywords；收藏别人表情时用 qq_collect_sticker 顺手带上 emotion 和 content，下次才挑得准。'
+    '- 学习：看到新表情不确定含义时，先用 qq_get_sticker_image 看图，再用 qq_sticker_note 写下 emotion/content/keywords；收藏别人表情时用 qq_collect_sticker 顺手带上 emotion 和 content，下次才挑得准。',
+    '- 大肥鱼表情包（另一套图库 dsh-nekowhale-stickers，322 张大肥鱼/GPT娘表情，名字带下划线如「3N05_摸鱼」）：想用时先 sticker_search(情绪词) 找名字，再 sticker_send(名字) 拿到一行 Markdown 图片（形如 ![摸鱼](http://127.0.0.1:3080/x-nekowhale-stickers/s/xxx.gif)），把里面的 http://127.0.0.1:3080/... 链接取出来，用 qq_send_image(file=那个链接) 发到 QQ。它和上面【可用表情包】是两套，编号 #01 那套用 qq_send_sticker，这一套用 sticker_send + qq_send_image，别混。'
   ].join('\n');
 }
 

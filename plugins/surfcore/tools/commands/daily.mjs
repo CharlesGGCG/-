@@ -80,7 +80,15 @@ const MEMES = accountBili('memes')
 const TMP = accountBili('tmp')
 const HERE = path.dirname(fileURLToPath(import.meta.url))
 const today = () => new Date().toLocaleDateString('sv-SE')
-const UA = { 'user-agent': 'Mozilla/5.0', referer: 'https://www.bilibili.com/' }
+// 2026-11-07：B站 `x/web-interface/view` 对「匿名 + 裸 UA」现在回 412 HTML（实测），
+// 只有带登录态 cookie 才回 JSON → 四类动态的选题核对于是整条断掉。补上账号 cookie。
+const CRED = (() => { try { return JSON.parse(fs.readFileSync(accountBili('credentials.json'), 'utf8')) } catch { return {} } })()
+const VIEW_COOKIE = CRED.sessdata ? `SESSDATA=${CRED.sessdata}; bili_jct=${CRED.bili_jct}; buvid3=${CRED.buvid3}` : ''
+const UA = {
+  'user-agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
+  referer: 'https://www.bilibili.com/',
+  ...(VIEW_COOKIE ? { cookie: VIEW_COOKIE } : {}),
+}
 
 const RAW = String(opt.text ?? '').trim()
 // 配置里明确为空 = 不加前缀；此时还要清掉模型可能带的旧默认前缀。

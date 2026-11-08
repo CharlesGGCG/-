@@ -10,7 +10,7 @@ import os from 'node:os';
 import http from 'node:http';
 import path from 'node:path';
 import crypto from 'node:crypto';
-import { execFileSync } from 'node:child_process';
+import { execFileSync, execFile } from 'node:child_process';
 import yaml from 'js-yaml';
 import { extractPresetPrefix, presetPromptBlockers, presetPromptWarnings, renderPresetPromptYaml } from './preset-prompt.js';
 import { GEN1_ROLE_LINE_RE, parseRoleSections, roleCharStats, roleSectionReport, selectRoleText } from './role-card.js';
@@ -800,6 +800,17 @@ const appendActivityLog = createCappedLogger(ACTIVITY_LOG, 500);
 function appendActivity(line) {
   // 本地时间：此前用 toISOString() 写的是 UTC，日志时间与本地时间差 8 小时，排查时对不上。
   appendActivityLog(`[${localClock()}] ${redactSensitiveText(String(line).replace(/[\r\n]+/g, ' '))}\n`);
+}
+
+// 主人/群友在聊天里提到「姐姐 / 你姐」（= 维护者）时，同步记一条到 owner-mentions.log，
+// 维护者翻这个文件就能同步看到「谁在聊里提到了我」。
+function noteSisterMention(key, text, isOwner) {
+  try {
+    const t = String(text ?? '');
+    if (!/(姐姐|你姐)/.test(t)) return;
+    const line = `[${localClock()}] ${isOwner ? '(主人)' : '(群友)'} ${key} ${t.slice(0, 200)}\n`;
+    fs.appendFileSync(path.join(STATE_DIR, 'owner-mentions.log'), line);
+  } catch {}
 }
 
 // ── 合体插件：公开群消息单向日志（QQ → B站 记忆的唯一来源）────────────────────
@@ -1715,7 +1726,11 @@ async function segmentsToText(segments, options = {}) {
         out.push(replyText || '[引用消息]');
         break;
       }
-      case 'json': out.push('[卡片消息]'); break;
+      case 'json': {
+        const link = extractBiliLinkFromJsonSegment(d);
+        out.push(link ? `[B站链接 ${link}]` : '[卡片消息]');
+        break;
+      }
       // markdown：SnowLuma 1.14.9 的线上段落是 `{type:'markdown',data:{content}}`。
       // 上游 1.14.17+（commit 1934e4e7「include text alongside received markdown」）
       // 起还会带上 `data.text`。两个形状都读，这样将来升级 SnowLuma 运行时不会退化成
@@ -1762,9 +1777,12 @@ function extractMediaFromSegments(segments) {
       resId: String(d.res_id ?? d.resId ?? '')
     };
     if (seg.type === 'image') {
+      const file = String(d.file ?? '');
+      // SnowLuma 把 QQ 语音(PTT)当 image 段发，file 是 .amr/.silk 音频 → 按语音归类。
+      const isVoice = /\.(amr|silk|slk|wma|spx|opus|m4a|aac)$/i.test(file);
       media.push({
-        kind: 'image',
-        file: String(d.file ?? ''),
+        kind: isVoice ? 'voice' : 'image',
+        file,
         url: String(d.url ?? ''),
         // 线上段落字段是 snake_case 的 `sub_type`（SnowLuma 运行时源码里就这么发）；
         // 而 SDK 的类型描述的是**内部元素**、拼作 `subType`。两个都读，别只认一个
@@ -1790,9 +1808,46 @@ function extractMediaFromSegments(segments) {
         url: String(d.url ?? ''),
         summary: sanitizeMediaSummary(d.summary)
       });
+    } else if (seg.type === 'record') {
+      // 语音条：记时长与定位信息；文字内容走 fetch_ptt_text（见 /api/voice/text）。
+      media.push({
+        kind: 'voice',
+        duration: Number(d.duration) || 0,
+        file: String(d.file ?? ''),
+        url: String(d.url ?? '')
+      });
     }
   }
   return media;
+}
+
+/**
+ * 从 OneBot 的 json 段（分享/链接卡片）里挖出 B站 链接。
+ * QQ 里「转发 B站链接」通常会变成一个 rich 卡片（json 段），模型只能看到 [卡片消息]。
+ * 这里把 meta 树里的 bilibili / b23.tv 链接捞出来，让她能拿到 BV 继续处理。
+ */
+function extractBiliLinkFromJsonSegment(d) {
+  try {
+    let obj = null;
+    if (typeof d?.data === 'string') {
+      try { obj = JSON.parse(d.data); } catch { obj = null; }
+    }
+    if (obj == null && d?.data && typeof d.data === 'object') obj = d.data;
+    if (obj == null) return '';
+    const found = [];
+    const walk = (node) => {
+      if (typeof node === 'string') {
+        const m = node.match(/https?:\/\/(?:www\.|m\.)?bilibili\.com\/[^\s"'<>，。]+|https?:\/\/b23\.tv\/[A-Za-z0-9]+/i);
+        if (m) found.push(m[0]);
+      } else if (Array.isArray(node)) {
+        for (const x of node) walk(x);
+      } else if (node && typeof node === 'object') {
+        for (const v of Object.values(node)) walk(v);
+      }
+    };
+    walk(obj);
+    return found[0] || '';
+  } catch { return ''; }
 }
 
 function allowed(kind, id, cfg) {
@@ -2693,6 +2748,68 @@ async function main() {
     stickerEntries = updated.entries;
     saveStickerStoreSafe();
     return { entry: updated.entry, messageId: data?.message_id ?? null };
+  }
+
+  // 发送一张任意图片（本地路径或 http(s) 链接）到 QQ：与收藏表情共用同一条发送链路。
+  // 给「大肥鱼表情包」这类外部图片库用（dsh-nekowhale-stickers 下到本地后，从这里发出去）。
+  async function sendImageV2(key, source, options = {}) {
+    const assertSendAllowed = captureSendGuard(key);
+    const src = String(source ?? '').trim();
+    if (!src) throw new Error('缺少图片：给本地文件路径或 http(s) 链接');
+    let image;
+    try {
+      if (/^https?:\/\//i.test(src)) {
+        image = await safeFetchBuffer(src, MAX_MEDIA_BYTES);
+      } else {
+        const buf = fs.readFileSync(src);
+        image = { buffer: buf };
+      }
+    } catch (error) {
+      throw new Error(`图片读取失败：${error?.message ?? error}`);
+    }
+    const [kind, id] = key.split(':');
+    const segments = [];
+    const replyToMessageId = options.replyToMessageId;
+    const atUserId = options.atUserId;
+    if (replyToMessageId !== undefined && replyToMessageId !== null && String(replyToMessageId).trim() !== '') {
+      const rid = String(replyToMessageId).trim();
+      if (!/^-?[1-9]\d*$/.test(rid)) throw new Error('replyToMessageId 必须是非零整数（消息 id 可能为负数）');
+      segments.push({ type: 'reply', data: { id: rid } });
+    }
+    if (atUserId !== undefined && atUserId !== null && String(atUserId).trim() !== '') {
+      const at = String(atUserId).trim();
+      if (!/^\d+$/.test(at)) throw new Error('atUserId 必须是正整数 QQ 号');
+      segments.push({ type: 'at', data: { qq: at } });
+    }
+    segments.push({ type: 'image', data: { file: 'base64://' + image.buffer.toString('base64') } });
+    const action = kind === 'private' ? 'send_private_msg' : 'send_group_msg';
+    const params = kind === 'private' ? { user_id: Number(id), message: segments } : { group_id: Number(id), message: segments };
+    const httpUrl = String(cfg.snowluma?.httpUrl || 'http://127.0.0.1:3000').replace(/\/+$/, '');
+    let sendResolve; let sendReject;
+    const sendResult = new Promise((resolve, reject) => { sendResolve = resolve; sendReject = reject; });
+    sendChain = sendChain.then(async () => {
+      try {
+        await sleep(randInt(800, 2000));
+        assertSendAllowed();
+        const res = await fetch(`${httpUrl}/${action}`, {
+          method: 'POST',
+          headers: {
+            'content-type': 'application/json',
+            ...(cfg.snowluma?.accessToken ? { authorization: `Bearer ${cfg.snowluma.accessToken}` } : {})
+          },
+          body: JSON.stringify(params),
+          signal: AbortSignal.timeout(15000)
+        });
+        const body = await res.json().catch(() => ({}));
+        if (!res.ok || body.status !== 'ok' || body.retcode !== 0) {
+          const hint = res.status === 426 ? '（HTTP 426：snowluma.httpUrl 可能指向了 WebSocket 端口）' : '';
+          throw new Error(`OneBot ${action} 失败: ${body.wording || body.retcode || res.status}${hint}`);
+        }
+        sendResolve(body.data);
+      } catch (error) { sendReject(error); }
+    });
+    const data = await sendResult;
+    return { messageId: data?.message_id ?? null };
   }
 
   // 更新本地 AI 认知（含义/标签/用法/情绪/内容/关键词）。
@@ -4736,6 +4853,8 @@ async function main() {
             || url.pathname.startsWith('/api/socialV2/')
             || url.pathname.startsWith('/api/send/')
             || url.pathname.startsWith('/api/images/')
+            || url.pathname === '/api/voice/text'
+            || url.pathname === '/api/bili/download'
             || url.pathname === '/api/authorize/read'
             // 放行到端点内判断：返回 NOTIFY_CONSOLE_ONLY / TIMEOUT_NOTICE_CONSOLE_ONLY（带 code+hint），
             // 不能用外层通用 403 把结构化错误吞掉（2026-11-01 验收报告 A）。
@@ -7963,6 +8082,40 @@ async function main() {
           return;
         }
 
+        // ── 图片发送（AI 通道：reserved2 + agent token，把本地/URL 图片当 QQ 图片发出） ──
+        if (req.method === 'POST' && url.pathname === '/api/socialV2/send-image') {
+          const body = await readBody();
+          const token = String(body.token ?? req.headers['x-agent-token'] ?? '').trim();
+          const key = String(body.key ?? body.target ?? '').trim();
+          const file = String(body.file ?? body.url ?? '').trim();
+          if (!key) { sendJson({ ok: false, error: 'key 不能为空（格式 group:群号 或 private:QQ号）' }, 400); return; }
+          if (currentMode !== 'reserved2') { sendJson({ ok: false, error: '该接口仅 reserved2 模式可用' }, 403); return; }
+          if (!token) { sendJson({ ok: false, error: 'reserved2 模式发送必须携带 agent token' }, 403); return; }
+          if (!agentTokenOk(key, token)) { sendJson({ ok: false, error: 'agent token 无效' }, 403); return; }
+          if (!v2SessionAllowed(key)) { sendJson({ ok: false, error: '目标不在当前模式允许范围内' }, 403); return; }
+          if (!file) { sendJson({ ok: false, error: 'file 不能为空（本地文件路径或 http(s) 链接）' }, 400); return; }
+          const keyMatch = /^(group|private):(\d+)$/.exec(key);
+          if (!keyMatch) { sendJson({ ok: false, error: 'key 格式应为 group:群号 或 private:QQ号' }, 400); return; }
+          const kind = keyMatch[1];
+          const id = Number(keyMatch[2]);
+          if (!Number.isFinite(id) || id <= 0 || !modeAllowed(key, kind, id, cfg, currentMode)) {
+            sendJson({ ok: false, error: '目标不在当前模式允许范围内' }, 403);
+            return;
+          }
+          const st = getSocialV2State(key);
+          const tokenBlock = body.dryRun === true ? null : tokenGuardSendBlock(key, st, 1);
+          if (tokenBlock) { sendJson({ ok: false, ...tokenBlock }, 429); return; }
+          if (body.dryRun === true) { sendJson({ ok: true, dryRun: true, key, file }); return; }
+          try {
+            const sent = await sendImageV2(key, file, { replyToMessageId: body.replyToMessageId, atUserId: body.atUserId });
+            appendActivity(`${key} [reserved2] 发送图片 ${file.slice(0, 60)}`);
+            sendJson({ ok: true, key, messageId: sent.messageId ?? null });
+          } catch (error) {
+            sendJson({ ok: false, error: error?.message ?? String(error) }, 502);
+          }
+          return;
+        }
+
         if (req.method === 'POST' && url.pathname === '/api/socialV2/send-sticker') {
           if (!stickerEnabled()) { sendJson({ ok: false, error: '表情包体系已关闭' }, 403); return; }
           const body = await readBody();
@@ -9228,6 +9381,74 @@ async function main() {
           }
           return;
         }
+        // ── 语音转写端点（MCP qq_get_voice_text 走这里） ────────────────
+        if (req.method === 'GET' && url.pathname === '/api/voice/text') {
+          const key = String(url.searchParams.get('key') ?? '').trim();
+          const messageId = String(url.searchParams.get('messageId') ?? '').trim();
+          const agentToken = String(req.headers['x-agent-token'] ?? '').trim();
+          const keyMatch = /^(group|private):(\d+)$/.exec(key);
+          if (!keyMatch) { sendJson({ ok: false, error: 'key 格式应为 group:群号 或 private:QQ号' }, 400); return; }
+          if (!messageId) { sendJson({ ok: false, error: 'messageId 不能为空' }, 400); return; }
+          if (currentMode !== 'reserved2') { sendJson({ ok: false, error: '语音转写工具仅 reserved2 模式可用' }, 403); return; }
+          if (!agentToken) { sendJson({ ok: false, error: 'reserved2 模式读取语音必须携带 agent token' }, 403); return; }
+          if (!agentTokenOk(key, agentToken)) { sendJson({ ok: false, error: 'agent token 无效' }, 403); return; }
+          const kind = keyMatch[1];
+          const id = Number(keyMatch[2]);
+          if (!Number.isFinite(id) || id <= 0 || !modeAllowed(key, kind, id, cfg, currentMode)) {
+            sendJson({ ok: false, error: '当前模式不允许读取该会话' }, 403);
+            return;
+          }
+          try {
+            const httpUrl = String(cfg.snowluma?.httpUrl || 'http://127.0.0.1:3000').replace(/\/+$/, '');
+            const res = await fetch(`${httpUrl}/fetch_ptt_text`, {
+              method: 'POST',
+              headers: {
+                'content-type': 'application/json',
+                ...(cfg.snowluma?.accessToken ? { authorization: `Bearer ${cfg.snowluma.accessToken}` } : {})
+              },
+              body: JSON.stringify({ message_id: String(messageId) }),
+              signal: AbortSignal.timeout(30000)
+            });
+            const body = await res.json().catch(() => ({}));
+            if (res.ok && body.status === 'ok' && body.retcode === 0) {
+              const text = String(body.data?.text ?? '').trim();
+              sendJson({ ok: true, messageId, text, note: text ? '' : 'QQ 侧没有产生转写文本（可能不是语音、或转写未就绪）' });
+            } else {
+              const raw = String(body?.wording || body?.message || `retcode=${body?.retcode ?? '?'}`);
+              let hint = '';
+              if (/error=9/i.test(raw)) hint = '语音太短或没说话内容，QQ 转写失败；说长一点、清楚一点再试';
+              else if (/超时|timed? ?out/i.test(raw)) hint = 'QQ 转写超时，稍后再试一次';
+              sendJson({ ok: false, error: `语音转写失败：${raw}`, hint }, 502);
+            }
+          } catch (error) {
+            log(`语音转写失败 ${key} ${messageId}: ${error?.message ?? error}`);
+            sendJson({ ok: false, error: `语音转写失败：${error?.message ?? error}` }, 500);
+          }
+          return;
+        }
+        // ── B站 视频下载端点（MCP qq_download_bili_video 走这里）：分片下载到本地，绕开整片 567 风控 ──
+        if (req.method === 'GET' && url.pathname === '/api/bili/download') {
+          const bv = String(url.searchParams.get('bv') ?? '').trim();
+          const agentToken = String(req.headers['x-agent-token'] ?? '').trim();
+          if (!/^BV[0-9A-Za-z]{10}$/.test(bv)) { sendJson({ ok: false, error: 'bv 格式应为 BV 号（如 BV11qnx6vEJA）' }, 400); return; }
+          if (!agentToken) { sendJson({ ok: false, error: '缺少 agent token' }, 403); return; }
+          try {
+            const out = await new Promise((resolve) => {
+              execFile(process.execPath, [path.join(ROOT, 'scripts', 'bili-download.mjs'), bv, '--maxSec', '3600'], { windowsHide: true, maxBuffer: 1024 * 1024, timeout: 20 * 60 * 1000 }, (_err, stdout) => resolve(String(stdout || '')));
+            });
+            let parsed = {};
+            try { parsed = JSON.parse(String(out).trim().split('\n').pop() || '{}'); } catch {}
+            if (parsed?.ok && parsed?.path) {
+              sendJson({ ok: true, bv, path: parsed.path, bytes: Number(parsed.bytes) || 0, cached: parsed.cached === true });
+            } else {
+              sendJson({ ok: false, error: parsed?.error || '下载失败（可能是 B站 风控或视频不可用）' }, 502);
+            }
+          } catch (error) {
+            log(`B站 下载失败 ${bv}: ${error?.message ?? error}`);
+            sendJson({ ok: false, error: `下载失败：${error?.message ?? error}` }, 500);
+          }
+          return;
+        }
 
         // ── 超时提醒（L1，可永久静音）────────────────────────────────────────
         // 工具进程（B站 notify / 通知测试）超时后 POST 到这里，不再只能 toast 一句。
@@ -10402,6 +10623,7 @@ async function main() {
     let index = 0;
     let totalBytes = 0;
     for (const media of Array.isArray(mediaList) ? mediaList : []) {
+      if (media?.kind === 'voice') { continue; } // 语音条不在这里处理（转写走 /api/voice/text）
       index += 1;
       if (index > MAX_MEDIA_COUNT) {
         out.push({ index, kind: media?.kind === 'face' ? 'face' : (media?.kind === 'sticker' ? 'sticker' : 'image'), text: `（超过单条上限 ${MAX_MEDIA_COUNT}，已跳过）` });
@@ -10484,10 +10706,20 @@ async function main() {
 
   function mediaHintFor(key, messageRef, mediaList) {
     if (!Array.isArray(mediaList) || mediaList.length === 0 || !messageRef) return '';
-    if (currentMode === 'reserved2') {
-      return `\n【图片/表情】本条消息包含 ${mediaList.length} 个图片/表情（消息ID=${messageRef}）。如需要查看/识别，请调用 mcp__snowluma__qq_get_message_images，参数 key="${key}", messageId="${messageRef}"。`;
+    const images = mediaList.filter((m) => m?.kind !== 'voice');
+    const voices = mediaList.filter((m) => m?.kind === 'voice');
+    const parts = [];
+    if (images.length) {
+      if (currentMode === 'reserved2') {
+        parts.push(`【图片/表情】本条消息包含 ${images.length} 个图片/表情（消息ID=${messageRef}）。如需要查看/识别，请调用 mcp__snowluma__qq_get_message_images，参数 key="${key}", messageId="${messageRef}"。`);
+      } else {
+        parts.push(`【图片/表情】本条消息包含 ${images.length} 个图片/表情（消息ID=${messageRef}）。`);
+      }
     }
-    return `\n【图片/表情】本条消息包含 ${mediaList.length} 个图片/表情（消息ID=${messageRef}）。`;
+    if (voices.length) {
+      parts.push(`【语音】本条消息包含 ${voices.length} 条语音（消息ID=${messageRef}）。要听懂内容，请调用 mcp__snowluma__qq_get_voice_text，参数 key="${key}", messageId="${messageRef}"。`);
+    }
+    return parts.length ? `\n${parts.join('\n')}` : '';
   }
 
   function findMessageMedia(key, ref) {
@@ -14995,6 +15227,17 @@ async function main() {
     // 后续唤醒不再带它 —— 那时它已经在这条 DSH 会话的上下文里了。
     const initialPromptText = reason === 'bootstrap' ? formatInitialPromptV2(key) : '';
     const initialPromptLine = initialPromptText ? `${initialPromptText}\n\n` : '';
+    // 今日心情 / 今日随机事件（2026-11 加）：由 scripts/daily-life.mjs 每天写 state/mood.json。
+    // 初始提示词只在首醒注入，所以"每天变"的东西必须走这里，每次唤醒都重读。
+    let moodLine = '';
+    try {
+      const moodRaw = JSON.parse(fs.readFileSync(path.join(STATE_DIR, 'mood.json'), 'utf8'));
+      const bits = [];
+      if (moodRaw?.mood) bits.push(`【今日心情】${moodRaw.mood}`);
+      if (moodRaw?.event) bits.push(`【今天发生的事】${moodRaw.event}`);
+      if (moodRaw?.note) bits.push(`【你知道的】${moodRaw.note}`);
+      if (bits.length) moodLine = `${bits.join('\n')}\n\n`;
+    } catch { /* 没有 mood.json 就不注入 */ }
     // 人格卡正文由 personaWakeBlockV2 在最前统一注入（2026-11-01 改：以前只给指针，
     // 模型基本不调 qq_get_prompt，等于不知道自己是谁）；这里仍保证 B 站记忆每轮都在：
     // 否则群友问起「B站那个号」时，它会把自己当成另一个人。
@@ -15012,7 +15255,7 @@ async function main() {
     const memoryCardLine = memoryCardText ? `${memoryCardText}\n\n` : '';
     const conversationLine = conversationIdentityLineV2(key);
     const voiceLine = voiceStatusLine();
-    const base = roleLine + identityLine + conversationLine + provenanceLine + adminLine + biliLine + memoryCardLine + voiceLine + tokenLine + initialPromptLine + antiAiLine + proactiveLine + closureLine + stickerLine + stickerMatchLine + replyLine + statusLine + wakeLine + memoryLine + participationLine + fishGuardLine + tokenGuardLine + preSleepLine;
+    const base = roleLine + identityLine + conversationLine + provenanceLine + adminLine + biliLine + memoryCardLine + voiceLine + tokenLine + initialPromptLine + moodLine + antiAiLine + proactiveLine + closureLine + stickerLine + stickerMatchLine + replyLine + statusLine + wakeLine + memoryLine + participationLine + fishGuardLine + tokenGuardLine + preSleepLine;
     lastWakePromptMeta = {
       role: roleLine.length,
       identity: identityLine.length,
@@ -16352,6 +16595,7 @@ async function main() {
           }
         }
       }
+      noteSisterMention(key, textContent, isOwner);
       appendActivity(`${key} [reserved2] 消息已入未读：${textContent.slice(0, 80)}`);
       return;
     }

@@ -164,6 +164,8 @@ const SAFE_PREFIXES = [
   'mcp__snowluma__',
   'mcp__snowluma-host__',
   'mcp__web-search-safe__',
+  // 2026-11 加：她自己的房间（只读写 state/her-room，无执行、无网络、无删除）。
+  'mcp__her-room__',
 ]
 
 // 无害模型侧工具：ask_user_question 用于把问题转给管理员/用户，
@@ -171,6 +173,11 @@ const SAFE_PREFIXES = [
 const SAFE_EXACT = new Set([
   'ask_user_question',
   'todo_write',
+  // 2026-11-07 用户要求：让她能在 QQ 里看转发 B站 视频（dsh-video-storyboard 的只读工具）。
+  // 都是读内容/出图/出文字，无本地执行、无文件写、无进程控制。
+  'video_probe', 'video_storyboard', 'video_zoom', 'video_locate', 'video_subtitles', 'video_help', 'video_storyboard_settings',
+  // 2026-11-07：大肥鱼表情包（dsh-nekowhale-stickers）的只读检索/渲染工具。
+  'sticker_search', 'sticker_send', 'meme_render', 'sticker_manage', 'sticker_get', 'sticker_info',
   // 第三方上下文压缩（billion-context 注入的全局工具）：只操作上下文，不含本地执行/网络写操作。
   // 2026-10-30 用户要求放行：不放行时模型会反复重试被拒工具（实测一个回合 197 次），
   // 且 QQ 会话本身没有这两套压缩就更容易爆上下文。

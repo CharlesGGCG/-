@@ -173,7 +173,9 @@ export async function validateFetchUrl(raw) {
   }
   if (!['http:', 'https:'].includes(url.protocol)) throw new Error('仅允许 http/https');
   if (url.username || url.password) throw new Error('URL 不能包含凭据');
-  const addresses = await resolveSafeAddresses(url.hostname);
+  // 白名单放行的本机静态路由（无 SSRF 风险）：dsh-nekowhale-stickers 的贴图走这里（sticker_send 返回 127.0.0.1:3080）。
+  const loopbackOk = /^http:\/\/127\.0\.0\.1:3080\/x-nekowhale-stickers\//i.test(url.href);
+  const addresses = loopbackOk ? [url.hostname] : await resolveSafeAddresses(url.hostname);
   return { url, ip: addresses[0], addresses };
 }
 

@@ -41,6 +41,28 @@ function findEdge() {
   for (const candidate of candidates) {
     try { if (fs.existsSync(candidate)) return candidate; } catch {}
   }
+  // 2026-11 追加：新版 Edge 走 EdgeCore\<版本>\msedge.exe（不是 Edge\Application），
+  // 以及 macOS 的 Edge.app —— 这里补一条按版本号倒序的探测，免得用户明明装了 Edge 却报"找不到"。
+  try {
+    const coreRoot = path.join(process.env['PROGRAMFILES(X86)'] || 'C:\\Program Files (x86)', 'Microsoft', 'EdgeCore');
+    const versions = fs.readdirSync(coreRoot, { withFileTypes: true })
+      .filter((d) => d.isDirectory() && /^\d+\./.test(d.name))
+      .map((d) => d.name)
+      .sort((a, b) => {
+        const pa = a.split('.').map(Number);
+        const pb = b.split('.').map(Number);
+        for (let i = 0; i < Math.max(pa.length, pb.length); i += 1) {
+          const d = (pa[i] || 0) - (pb[i] || 0);
+          if (d) return d;
+        }
+        return 0;
+      })
+      .reverse();
+    for (const v of versions) {
+      const exe = path.join(coreRoot, v, 'msedge.exe');
+      if (fs.existsSync(exe)) return exe;
+    }
+  } catch { /* EdgeCore 不存在就忽略 */ }
   return '';
 }
 
