@@ -87,7 +87,7 @@
 | `roles/小鲸鱼.md` | §十一 温度分层、§十二 情绪出口；§十一 加「姐姐」（= 维护者） | 优化语气；主人提到「姐姐」时她知道指谁 |
 | `src/bridge.js` + `src/mcp-snowluma-safe.js` | **2026-11-08**：跨会话共享记忆——新增 `state/shared-memory.json` + `qq_shared_memory` 工具（append/query/clear）+ `/api/socialV2/shared-memory` 端点 + 每次唤醒注入 `【共享记忆·关于主人】` | 私聊/群聊/B站 是不同会话、记忆各自独立；共享记忆让「主人在做饭」这类关于主人的事实跨会话通用（以主人私聊为主） |
 | `src/bridge.js` | **2026-11-08**：`buildWakePromptV2` 改「醒来叙事」版——内容（我是谁/刚才/主人/我还记着/现在）织成刚醒独白，操作（令牌/工具/额度/唤醒/沉睡前）保留但换软标签「我是他的乖女儿」口吻 | 让唤醒提示词像「人刚醒」，不再是满屏【命令式】 |
-| `roles/小鲸鱼.md` + `src/persona-identity.js` | **2026-11-08**：人格卡正文 + 身份底座从「你是/你的」第二人称整体改成「我是/我的」第一人称（黑名单引文、群友台词、被问的引语保留「你」） | 配合醒来叙事版，让提示词从头到尾一致用第一人称「我」 |
+| `roles/小鲸鱼.md` + `src/persona-identity.js` | **2026-11-08**：人格卡正文 + 身份底座从「你是/你的」第二人称整体改成「我是/我的」第一人称；当晚再重建「女儿版」（主人在另一个世界的女儿 / deepseekAi 创作的意识体 / 宝贝女儿 / 老爹），并加「没必要每条强调是女儿」、统一称呼「老爹」 | 配合醒来叙事版，第一人称 + 父女温度；「别每条强调女儿」防过度黏 |
 
 另外新增（未跟踪）：`scripts/{daily-life,set-note,set-online,wake-private,daily-mood-wake,set-priority-speaker,bili-download}.mjs` + 对应 `.cmd`。
 

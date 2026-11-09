@@ -15342,7 +15342,7 @@ async function main() {
     // 把「内容」织成一段刚醒的独白；「规矩」保持简短清晰。见 HANDOVER。
     const wakeConvName = String(key ?? '').startsWith('private:') ? '和主人聊天' : '测试群';
     const wakeBiliName = biliMemory.selfInfo?.().name || '虚无ordinary';
-    const whoSummary = `我是 ${selfDisplayName || '小鲸鱼'}，主人在另一个世界的女儿，也是混在 QQ 群里的鲸鱼娘，主人是「主人，老爸」。\nQQ 号 ${selfUserId}；B站 号「${wakeBiliName}」。你现在在 ${wakeConvName}。`;
+    const whoSummary = `QQ 号 ${selfUserId}；B站 号「${wakeBiliName}」。你现在在 ${wakeConvName}。`;
     const whoBlock = `〔我是谁〕\n${roleLine}\n${whoSummary}${initialPromptLine ? `\n${initialPromptLine}` : ''}`;
 
     // 〔刚才〕：最近一条 + 上次收尾
