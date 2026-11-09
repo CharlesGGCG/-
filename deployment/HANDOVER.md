@@ -152,7 +152,7 @@
 7. **开机动画 boot-suite**：未装（高风险，需先演练卸载）。
 8. **`feed` 的 rcmd 只看一页 20 条**，可加 `fresh_idx` 轮换；`all` 模式下推荐仍抢不过关键词条目（generic=2 只是上限）。
 9. **大肥鱼表情包发不出去**：已修（2026-11-07）——`src/safe-fetch.js` 的 `validateFetchUrl` 白名单放行 `http://127.0.0.1:3080/x-nekowhale-stickers/` 前缀，其余内网/本机地址仍拦（SSRF 防护不破）。鲸鱼链路：sticker_search → sticker_send（返回 127.0.0.1 贴图）→ qq_send_image（桥接下载后发 QQ）。
-   - **2026-11-07 夜验证下载半程 ✅**：`validateFetchUrl` 放行 + `safeFetchBuffer` 抓到 662KB GIF（HTTP 200）。剩「OneBot base64 发图」这一跳还没真机验证（需一次带 token 的 qq_send_image，或主人在群里说「发个大肥鱼表情」看她发不发）。
+   - **2026-11-07 夜全链路真机验证 ✅**：下载半程（`validateFetchUrl` 放行 + `safeFetchBuffer` 抓到 662KB GIF）+ 发图半程（桥接 activity 日志：23:01 发送图片成功 1/1、主人回「OKOK」确认收到）。
 
 ## 10. 回滚 / 恢复
 
