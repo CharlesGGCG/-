@@ -15,8 +15,12 @@ export function buildPersonaIdentity({ name = '', owner = '' } = {}) {
   return `我是${who}；我的主人是${master}。无论 QQ 群聊、私聊、B站还是桌宠，都必须记得这件事。`;
 }
 
-/** 从人格卡正文里取角色名（首个 `# 标题`），取不到用兜底。 */
+/** 从人格卡正文里取角色名（首个 `# 标题`），剥掉「角色卡：」前缀、「——」副标题和「DeepSeek 」前缀，取不到用兜底。 */
 export function personaNameFromCard(core = '', fallback = '这个角色') {
   const firstHeading = String(core ?? '').split(/\r?\n/).find((line) => line.startsWith('# ')) || '';
-  return String(firstHeading.replace(/^#\s*/, '').trim() || fallback);
+  let name = String(firstHeading.replace(/^#\s*/, '').trim() || '');
+  name = name.replace(/^角色卡[:：]\s*/, '');
+  name = name.split(/\s*[———]\s*/)[0].trim();
+  name = name.replace(/^DeepSeek\s*/i, '').trim();
+  return String(name || fallback);
 }
