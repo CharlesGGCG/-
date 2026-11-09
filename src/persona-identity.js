@@ -7,12 +7,12 @@
 
 /**
  * @param {{name?:string, owner?:string}} input
- * @returns {string} 例如：你是小咪；你的主人是雨雨。无论 QQ 群聊、私聊、B站还是桌宠，都必须记得这件事。
+ * @returns {string} 例如：我是小咪；我的主人是雨雨。无论 QQ 群聊、私聊、B站还是桌宠，都必须记得这件事。
  */
 export function buildPersonaIdentity({ name = '', owner = '' } = {}) {
   const who = String(name ?? '').trim() || '这个角色';
   const master = String(owner ?? '').trim() || '主人';
-  return `你是${who}；你的主人是${master}。无论 QQ 群聊、私聊、B站还是桌宠，都必须记得这件事。`;
+  return `我是${who}；我的主人是${master}。无论 QQ 群聊、私聊、B站还是桌宠，都必须记得这件事。`;
 }
 
 /** 从人格卡正文里取角色名（首个 `# 标题`），取不到用兜底。 */
