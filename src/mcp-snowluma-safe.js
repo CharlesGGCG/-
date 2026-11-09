@@ -1117,6 +1117,33 @@ server.tool(
 );
 
 server.tool(
+  'qq_shared_memory',
+  '跨会话共享记忆（关于主人）：append=记一条关于主人的事实（如「主人在做饭」）；query=查看全部共享记忆；clear=清空。写入后所有对话（私聊/群聊/B站）下次醒来都会在提示词里看到，保证她到处是同一个认知。',
+  {
+    key: z.string().describe('会话 key，格式 group:群号 或 private:QQ号'),
+    token: z.string().describe('会话令牌（见唤醒提示中的【会话令牌】）'),
+    action: z.enum(['append', 'query', 'clear']).describe('append=追加一条；query=查看；clear=清空'),
+    text: z.string().optional().describe('append 时要记录的事实（关于主人的，如「主人在做饭」），最多 200 字')
+  },
+  async ({ key, token, action, text }) => {
+    try {
+      if (action === 'query') {
+        const data = await agentApi(`/api/socialV2/shared-memory?key=${encodeURIComponent(key)}`, { headers: { 'x-agent-token': token } });
+        return { content: [{ type: 'text', text: serializeModelData(data) }] };
+      }
+      const data = await agentApi('/api/socialV2/shared-memory', {
+        method: 'POST',
+        body: JSON.stringify({ key, action, text: text || '' }),
+        headers: { 'x-agent-token': token }
+      });
+      return { content: [{ type: 'text', text: serializeModelData(data) }] };
+    } catch (error) {
+      return { content: [{ type: 'text', text: `共享记忆操作失败：${error?.message ?? error}` }], isError: true };
+    }
+  }
+);
+
+server.tool(
   'qq_slang_query',
   '查看当前已确认的群聊黑话/梗/网络表达（只读）。返回已确认词条列表和格式化黑话表；遇到不熟悉的词可先查这里，再决定是否搜索/使用。',
   {

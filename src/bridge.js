@@ -155,6 +155,7 @@ function readBiliTimeoutMutes() {
 }
 const SLANG_FILE = path.join(STATE_DIR, 'slang.json');
 const SLANG_SESSION_FILE = path.join(STATE_DIR, 'slang-session.json');const SOCIAL_V2_FILE = path.join(STATE_DIR, 'social-v2.json');
+const SHARED_MEMORY_FILE = path.join(STATE_DIR, 'shared-memory.json');
 // 操作者为每个会话预写的「初始提示词」（见 main() 里的 initialPrompts）。
 // 单独一个文件：它属于操作者配置，不能随 social-v2.json 的会话状态一起被重置清掉。
 const INITIAL_PROMPTS_FILE = path.join(STATE_DIR, 'initial-prompts.json');
@@ -9094,6 +9095,33 @@ async function main() {
           sendJson({ ok: true, key, category, content, memory: formatMemoryV2(st) });
           return;
         }
+        if (req.method === 'POST' && url.pathname === '/api/socialV2/shared-memory') {
+          const body = await readBody();
+          const key = String(body.key ?? '').trim();
+          const action = String(body.action ?? 'append').trim();
+          const text = String(body.text ?? '').trim();
+          if (!key) { sendJson({ ok: false, error: 'key 不能为空' }, 400); return; }
+          if (req.headers['x-agent-token'] && !agentTokenOk(key, req.headers['x-agent-token'])) { sendJson({ ok: false, error: 'agent token 无效' }, 403); return; }
+          if (req.headers['x-agent-token'] && !v2SessionAllowed(key)) { sendJson({ ok: false, error: '目标不在当前模式允许范围内' }, 403); return; }
+          if (req.headers['x-agent-token'] && !v2ToolEnabled('memory')) { sendJson({ ok: false, error: '工具未启用：qq_shared_memory' }, 403); return; }
+          if (action === 'clear') {
+            writeSharedMemory([]);
+            sendJson({ ok: true, key, cleared: true });
+            return;
+          }
+          const res = appendSharedMemory(text, key);
+          if (!res.ok) { sendJson({ ok: false, error: res.error }, 400); return; }
+          sendJson({ ok: true, key, count: res.count, shared: formatSharedMemory() });
+          return;
+        }
+        if (req.method === 'GET' && url.pathname === '/api/socialV2/shared-memory') {
+          const key = String(url.searchParams.get('key') ?? '').trim();
+          if (req.headers['x-agent-token'] && (!key || !agentTokenOk(key, req.headers['x-agent-token']))) { sendJson({ ok: false, error: 'agent token 无效' }, 403); return; }
+          if (req.headers['x-agent-token'] && (!key || !v2SessionAllowed(key))) { sendJson({ ok: false, error: '目标不在当前模式允许范围内' }, 403); return; }
+          const facts = readSharedMemory().facts || [];
+          sendJson({ ok: true, key, count: facts.length, facts: facts.slice(-20) });
+          return;
+        }
         if (req.method === 'POST' && url.pathname === '/api/socialV2/memory-update') {
           const body = await readBody();
           const key = String(body.key ?? '').trim();
@@ -12256,6 +12284,58 @@ async function main() {
     return defaultMs;
   }
 
+  // ── 跨会话共享记忆（关于主人）─────────────────────────────────────────────
+  // 不同会话（私聊/群聊/B站）是不同的「个体」，但「关于主人的事实」要跨会话通用：
+  // 私聊里主人说「我在做饭」，群聊/B站 也要知道 —— 存进 state/shared-memory.json，
+  // 每次唤醒都注入（见 buildWakePromptV2 的 sharedMemoryLine），让各个体保持同一认知。
+  function readSharedMemory() {
+    try {
+      const raw = JSON.parse(fs.readFileSync(SHARED_MEMORY_FILE, 'utf8'));
+      if (raw && Array.isArray(raw.facts)) {
+        return {
+          facts: raw.facts.filter((f) => f && typeof f.text === 'string'),
+          updatedAt: Number(raw.updatedAt) || 0,
+        };
+      }
+    } catch { /* 没有或损坏就返回空 */ }
+    return { facts: [], updatedAt: 0 };
+  }
+
+  function writeSharedMemory(facts) {
+    try {
+      fs.writeFileSync(SHARED_MEMORY_FILE, JSON.stringify({ facts, updatedAt: Date.now() }, null, 2), 'utf8');
+      return true;
+    } catch (e) {
+      console.error('共享记忆写入失败：', e?.message ?? e);
+      return false;
+    }
+  }
+
+  function appendSharedMemory(text, src) {
+    const clean = String(text ?? '').replace(/\s+/g, ' ').trim().slice(0, 200);
+    if (!clean) return { ok: false, error: '内容为空' };
+    const cur = readSharedMemory();
+    const facts = cur.facts.slice(-30);
+    const idx = facts.findIndex((f) => String(f.text ?? '') === clean);
+    const entry = { text: clean, at: Date.now(), src: String(src ?? '').slice(0, 40) };
+    if (idx >= 0) facts[idx] = entry; else facts.push(entry);
+    while (facts.length > 30) facts.shift();
+    writeSharedMemory(facts);
+    return { ok: true, count: facts.length };
+  }
+
+  function formatSharedMemory() {
+    const facts = readSharedMemory().facts.filter((f) => f && f.text);
+    const head = '【共享记忆·关于主人】以下事实跨会话通用（私聊/群聊/B站都成立）；主人在任何对话里告诉你关于他自己的新情况时，用 qq_shared_memory(action=append) 记一条。';
+    if (!facts.length) return head;
+    const lines = [head];
+    for (const f of facts.slice(-10)) {
+      const ago = f.at ? Math.round((Date.now() - Number(f.at)) / 60000) : 0;
+      lines.push(`- ${f.text}（${ago > 0 ? ago + '分钟前' : '刚刚'}）`);
+    }
+    return lines.join('\n');
+  }
+
   function formatMemoryV2(st) {
     if (!st) return '';
     const lines = [];
@@ -15238,6 +15318,9 @@ async function main() {
       if (moodRaw?.note) bits.push(`【你知道的】${moodRaw.note}`);
       if (bits.length) moodLine = `${bits.join('\n')}\n\n`;
     } catch { /* 没有 mood.json 就不注入 */ }
+    // 跨会话共享记忆（关于主人）：每次唤醒都重读，私聊/群聊/B站 都注入同一份。
+    const sharedMemoryText = formatSharedMemory();
+    const sharedMemoryLine = sharedMemoryText ? `${sharedMemoryText}\n\n` : '';
     // 人格卡正文由 personaWakeBlockV2 在最前统一注入（2026-11-01 改：以前只给指针，
     // 模型基本不调 qq_get_prompt，等于不知道自己是谁）；这里仍保证 B 站记忆每轮都在：
     // 否则群友问起「B站那个号」时，它会把自己当成另一个人。
@@ -15255,7 +15338,7 @@ async function main() {
     const memoryCardLine = memoryCardText ? `${memoryCardText}\n\n` : '';
     const conversationLine = conversationIdentityLineV2(key);
     const voiceLine = voiceStatusLine();
-    const base = roleLine + identityLine + conversationLine + provenanceLine + adminLine + biliLine + memoryCardLine + voiceLine + tokenLine + initialPromptLine + moodLine + antiAiLine + proactiveLine + closureLine + stickerLine + stickerMatchLine + replyLine + statusLine + wakeLine + memoryLine + participationLine + fishGuardLine + tokenGuardLine + preSleepLine;
+    const base = roleLine + identityLine + conversationLine + provenanceLine + adminLine + biliLine + memoryCardLine + voiceLine + tokenLine + initialPromptLine + moodLine + sharedMemoryLine + antiAiLine + proactiveLine + closureLine + stickerLine + stickerMatchLine + replyLine + statusLine + wakeLine + memoryLine + participationLine + fishGuardLine + tokenGuardLine + preSleepLine;
     lastWakePromptMeta = {
       role: roleLine.length,
       identity: identityLine.length,
