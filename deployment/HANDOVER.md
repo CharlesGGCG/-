@@ -86,6 +86,7 @@
 | `plugins/surfcore/lib/bili-qr-login.mjs` | `findEdge()` 增加 `EdgeCore\<版本>\msedge.exe` 探测 | 这台机器 Edge 走 EdgeCore 部署，原代码找不到 |
 | `roles/小鲸鱼.md` | §十一 温度分层、§十二 情绪出口；§十一 加「姐姐」（= 维护者） | 优化语气；主人提到「姐姐」时她知道指谁 |
 | `src/bridge.js` + `src/mcp-snowluma-safe.js` | **2026-11-08**：跨会话共享记忆——新增 `state/shared-memory.json` + `qq_shared_memory` 工具（append/query/clear）+ `/api/socialV2/shared-memory` 端点 + 每次唤醒注入 `【共享记忆·关于主人】` | 私聊/群聊/B站 是不同会话、记忆各自独立；共享记忆让「主人在做饭」这类关于主人的事实跨会话通用（以主人私聊为主） |
+| `src/bridge.js` | **2026-11-08**：`buildWakePromptV2` 改「醒来叙事」版——内容（我是谁/刚才/主人/我还记着/现在）织成刚醒独白，操作（令牌/工具/额度/唤醒/沉睡前）保留但换软标签「我是他的乖女儿」口吻 | 让唤醒提示词像「人刚醒」，不再是满屏【命令式】 |
 
 另外新增（未跟踪）：`scripts/{daily-life,set-note,set-online,wake-private,daily-mood-wake,set-priority-speaker,bili-download}.mjs` + 对应 `.cmd`。
 

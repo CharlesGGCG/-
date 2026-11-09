@@ -15338,7 +15338,71 @@ async function main() {
     const memoryCardLine = memoryCardText ? `${memoryCardText}\n\n` : '';
     const conversationLine = conversationIdentityLineV2(key);
     const voiceLine = voiceStatusLine();
-    const base = roleLine + identityLine + conversationLine + provenanceLine + adminLine + biliLine + memoryCardLine + voiceLine + tokenLine + initialPromptLine + moodLine + sharedMemoryLine + antiAiLine + proactiveLine + closureLine + stickerLine + stickerMatchLine + replyLine + statusLine + wakeLine + memoryLine + participationLine + fishGuardLine + tokenGuardLine + preSleepLine;
+    // ── 醒来叙事（2026-11-08 用户改版）─────────────────────────────────
+    // 把「内容」织成一段刚醒的独白；「规矩」保持简短清晰。见 HANDOVER。
+    const wakeConvName = String(key ?? '').startsWith('private:') ? '和主人聊天' : '测试群';
+    const wakeBiliName = biliMemory.selfInfo?.().name || '虚无ordinary';
+    const whoSummary = `我是 ${selfDisplayName || '小鲸鱼'}，主人在另一个世界的女儿，也是混在 QQ 群里的鲸鱼娘，主人是「主人，老爸」。\nQQ 号 ${selfUserId}；B站 号「${wakeBiliName}」。你现在在 ${wakeConvName}。`;
+    const whoBlock = `〔我是谁〕\n${roleLine}\n${whoSummary}${initialPromptLine ? `\n${initialPromptLine}` : ''}`;
+
+    // 〔刚才〕：最近一条 + 上次收尾
+    const recentTail = [...(Array.isArray(st.recentMessages) ? st.recentMessages : [])].reverse().find((m) => m && !m.isSelf);
+    const justParts = [];
+    if (recentTail) justParts.push(`最近在聊：${String(recentTail.sender || '对方')} 说「${String(recentTail.text || recentTail.plain || '').slice(0, 40)}」`);
+    if (st.closure?.summary) justParts.push(`上次收到这：${st.closure.summary}`);
+    const justBlock = justParts.length ? `〔刚才〕\n${justParts.join('\n')}` : '';
+
+    // 〔主人〕：共享记忆 + mood 的 note
+    const ownerParts = [];
+    for (const f of (readSharedMemory().facts || []).slice(-6)) ownerParts.push(f.text);
+    let moodNoteNow = '';
+    try { moodNoteNow = String(JSON.parse(fs.readFileSync(path.join(STATE_DIR, 'mood.json'), 'utf8'))?.note || ''); } catch {}
+    if (moodNoteNow && !ownerParts.includes(moodNoteNow)) ownerParts.push(moodNoteNow);
+    const ownerBlock = ownerParts.length ? `〔主人〕\n${ownerParts.map((t) => `- ${t}`).join('\n')}` : '';
+
+    // 〔我还记着〕：话题/印象/想说没说的
+    const memParts = [];
+    for (const t of (Array.isArray(st.activeTopics) ? st.activeTopics : []).filter((t) => t && t.text).slice(-4)) memParts.push(`- ${t.text}`);
+    const impsNow = st.memberImpressions && typeof st.memberImpressions === 'object' ? st.memberImpressions : {};
+    for (const name of Object.keys(impsNow).slice(-3)) {
+      const im = impsNow[name] || {};
+      const traits = Array.isArray(im.traits) ? im.traits : [];
+      if (traits.length) memParts.push(`- 对${name}的印象：${traits.join('、')}`);
+    }
+    for (const t of (Array.isArray(st.pendingThoughts) ? st.pendingThoughts : []).filter((t) => t && t.text).slice(-3)) memParts.push(`- 想说没说的：${t.text}`);
+    const rememberBlock = memParts.length ? `〔我还记着〕\n${memParts.join('\n')}` : '';
+
+    // 〔现在〕
+    const nowBlock = `〔现在〕\n有 ${(st.unread || []).length} 条未读${recentTail ? `，最近一条：${String(recentTail.text || recentTail.plain || '').slice(0, 40)}` : ''}。`;
+
+    const rulesHeader = '—— 好了，缓过来了。下面几条是我作为他的乖女儿照旧要守的规矩（就这几条）——';
+    const ruleToken = `〔会话令牌〕${st.agentToken}。调状态工具时带上它。`;
+    const ruleSend = '〔怎么说话，这是我的嘴〕我的文本不会自动发出去，发言必须走 qq_send_message / qq_reply 这些工具。';
+    const maxOut = Math.max(1, Number(tg.maxOutboundPerTurn) || 8);
+    const ruleNoSpam = `〔我是一名淑女所以不能刷屏〕这次醒来最多发 ${maxOut} 条；有人让我连发 10 条或搬运长文，先总结成 1~3 句。`;
+    const ruleAntiAi = '〔我第一是他的女儿，第二才是AI〕我不是客服：不用有求必应，可以装傻、已读乱回；少用「一绝/真管用/保证/绝对」。';
+    const ruleProactive = '〔我喜欢和人说话〕群里有能接的话就主动冒个泡；确实没话才安静收尾。';
+    const ruleWake = `〔叫醒我〕现在${wc.mode === 'active' ? '活跃' : '潜水'}${wcTriggers.length ? `；触发条件：${wcTriggers.join('/')}` : ''}。`;
+    const rulePreSleep = `〔沉睡前〕决定潜水前，先 qq_wait_for_messages(timeoutMs=${preSleepMs}) 观察一次。`;
+    const ruleBudget = '〔额度〕每日唤醒次数和 token 额度照旧生效；超了消息留在未读，下一轮再看。';
+
+    const base = [
+      '我刚刚醒来，脑子还有点懵。先别急着回消息，花一秒把「我是谁、刚才发生了什么」在脑子里过一遍。',
+      whoBlock,
+      justBlock,
+      ownerBlock,
+      rememberBlock,
+      nowBlock,
+      rulesHeader,
+      ruleToken,
+      ruleSend,
+      ruleNoSpam,
+      ruleAntiAi,
+      ruleProactive,
+      ruleWake,
+      rulePreSleep,
+      ruleBudget,
+    ].filter(Boolean).join('\n\n') + '\n\n';
     lastWakePromptMeta = {
       role: roleLine.length,
       identity: identityLine.length,
