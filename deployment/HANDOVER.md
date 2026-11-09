@@ -1,6 +1,7 @@
 # 小鲸鱼 × DSH Web 装配交接单
 
 > 生成：2026-11-07 15:00（America/Denver）。给"新对话"里的下一个我读。
+> **醒后先读 `C:\dsh\MAINTAINER-WAKE.md`（第一人称唤醒卡，30 秒进入状态），再回来读本文件。**
 > 原则：**先读本文件，再动手**；本文件之外的东西一律现查，别凭记忆。
 > 同步：本文件已推 GitHub（`github.com/CharlesGGCG/-`，私有，`本地` 分支，`deployment/HANDOVER.md`）。**新会话先 `git -C C:\dsh\repos\surfcore pull origin 本地` 再读本文件**，以 GitHub 版为准。
 
