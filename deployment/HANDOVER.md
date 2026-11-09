@@ -116,6 +116,7 @@
 2. **`.cmd` 必须是 GBK(936)**：cmd 按 ANSI 读脚本，UTF-8 中文会变成乱码命令（我曾因此让脚本跑错）。
 3. `python.exe` 是 0 字节商店占位符；`pyopenjtalk-prebuilt` 只到 cp311 → GPT-SoVITS 环境必须 **Python 3.11**。
 4. 仓库自带 `.bat` 里含**真实控制字符**（`\v`/`\t`），会毁路径；已重写 `run.bat`/`gsv.bat`/cloud `run.bat`，原件 `.orig`。
+   - **2026-11-08**：voice-local 的 `run.bat` 把 voxd 启动从 `start /b pythonw` 改成「explorer 打开 `voxd-launch.vbs`」脱离 DSH 进程树——重启不再带崩 8765（voxd 是桥接子进程，原来每次都死，要手动重跑 run.bat）。注意：voxd 用 `cmd /c python.exe -m voxd` 才起得来，`pythonw.exe` 直启会静默失败。
 5. 语音包 clone 下来**没有 `config.toml`**，`run.bat` 会静默退出；要 `copy config.example.toml config.toml`。
 6. `bootstrap-env.mjs` 找 Python 会被 WindowsApps 占位符抢先；必须把真 Python **前置** PATH。
 7. `qq_get_prompt` 之类的接口返回的是**结构化摘要**，不是拼装后的提示词；验证提示词只能真唤醒。
