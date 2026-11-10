@@ -1,5 +1,11 @@
 # SurfCore — 给 DSH agent 一个真实的身份：QQ × B站 × 桌宠
 
+> **上游出处**：本项目基于 [Mieksido/surfcore](https://github.com/Mieksido/surfcore)
+> （v0.8.9，MIT License）二次开发。原项目版权与许可见 [LICENSE](LICENSE)
+> （Copyright (c) 2026 Derpyu520 and qq-bridge / QSH contributors）。
+> 本仓为个人维护分支：在上游 v0.8.9 之上持续修复与升级，后续将逐步偏离上游独立演进。
+> 上游不对本仓修改提供背书，问题请先在本仓提，不打扰上游。
+
 **中文** | [English](README.en.md)
 
 > 一句话：**它不是"把大模型接进 QQ"的机器人框架，而是给模型一个身份、一套会遗忘的记忆、
