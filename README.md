@@ -1,5 +1,17 @@
 # SurfCore — 给 DSH agent 一个真实的身份：QQ × B站 × 桌宠
 
+> **鲸忆 · Whalemory** —— 一条会记住的鲸鱼。
+>
+> 它不是「把大模型接进 QQ」的机器人框架，而是给 DeepSeek Harness 里的 agent 一个真实的身份：一条有自己人格、记忆和作息的鲸鱼，住在 QQ 与 B站 之间，也会坐在你的桌面上。她能听懂你的语音、看懂你转发的视频、把想留住的东西收进自己的房间、写下只有自己会看的日记，也记得关于你的事。
+>
+> 我们不想靠越来越长的提示词去「演」一个人，而是让她在每次醒来时，用第一人称回忆自己的记忆；把多模态信息喂给她，逐步减少提示词，寻找真正能充当记忆的方案。
+>
+> **Whalemory · 鲸忆** — A whale who remembers.
+>
+> Not another "plug an LLM into QQ" bot framework, but an attempt to give a DeepSeek Harness agent a real identity: a whale with her own personality, memory, and daily rhythm — living between QQ and Bilibili, and sitting on your desktop. She understands your voice, watches the videos you forward, keeps the little things worth holding onto in a room of her own, writes a diary only she will read, and remembers what matters about you.
+>
+> We don't want to "act human" through ever-longer prompts. Instead, each time she wakes, she recalls her own memories in first person. We feed her multimodal information, gradually shrink the prompt, and search for something that can truly serve as memory.
+
 > **上游出处**：本项目基于 [Mieksido/surfcore](https://github.com/Mieksido/surfcore)
 > （v0.8.9，MIT License）二次开发。原项目版权与许可见 [LICENSE](LICENSE)
 > （Copyright (c) 2026 Derpyu520 and qq-bridge / QSH contributors）。
