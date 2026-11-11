@@ -29,6 +29,7 @@ import { composePersonaLayers } from '../../../src/persona-layers.js';
 import { adminFromSources } from '../../../src/admin-identity.js';
 import { appendMemoryInboxEvent } from '../../../src/memory-card.js?rev=20261025-pet-memory2';
 import { synthesizeToFile, wavDurationMs } from '../../../src/voice-tts.js';
+import { getMemoryGraph, graphRecallBlock } from '../../../src/memory-graph.js';
 
 const ONE_SECOND = 1000;
 const MAX_INPUT_CHARS = 1200;
@@ -759,7 +760,10 @@ export function createPetChatService({ ctx, stateDir, pluginLog = () => {}, toke
     const history = readHistory();
     const role = roleInfo();
     const owner = ownerInfo();
-    const system = buildChatSystemPrompt({ role, owner, memory: memoryBlock(), purpose: purposeBackground(), modality: mode });
+    // 记忆图谱召回：把「想起的旧事」加进 system（失败退化成空，不阻塞）
+    let graphMemory = '';
+    try { graphMemory = await graphRecallBlock(say) } catch {}
+    const system = buildChatSystemPrompt({ role, owner, memory: memoryBlock() + (graphMemory ? `\n${graphMemory}` : ''), purpose: purposeBackground(), modality: mode });
     const user = [
       history.messages.length ? '【最近聊天】' : '',
       history.messages.length ? formatHistory(history, s.chat.historyTurns, say, owner.name) : say,
@@ -801,6 +805,8 @@ export function createPetChatService({ ctx, stateDir, pluginLog = () => {}, toke
         roleName: role.name,
       }));
       lastChatAt = now;
+      // 记忆图谱：后台抽取（fire-and-forget，不阻塞回复）
+      getMemoryGraph().then((mg) => mg.enqueue({ userMessage: say, aiResponse: reply })).catch(() => {});
       lastError = '';
       return {
         ok: true,
