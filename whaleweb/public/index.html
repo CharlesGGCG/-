@@ -52,7 +52,7 @@
   .err { color: var(--accent-deep); font-size: 13px; margin-top: 10px; min-height: 18px; }
 
   /* —— 聊天 —— */
-  .chat { width: 100%; max-width: 720px; height: 100vh; display: flex; flex-direction: column; }
+  .chat { width: 100%; max-width: 720px; height: 100vh; height: 100dvh; display: flex; flex-direction: column; position: relative; }
   header {
     display: flex; align-items: center; gap: 14px; padding: 18px 24px;
     border-bottom: 1px solid var(--border); background: var(--surface);
@@ -60,23 +60,34 @@
   .avatar {
     width: 46px; height: 46px; border-radius: 50%; object-fit: cover; flex-shrink: 0;
     background: var(--accent-soft); border: 1px solid var(--border);
+    transition: transform .2s ease;
   }
+  .avatar.thinking { animation: breathe 1.4s ease-in-out infinite; }
+  @keyframes breathe { 0%,100% { transform: scale(1); } 50% { transform: scale(1.09); } }
   header h1 { font-size: 20px; }
   .status { font-size: 12.5px; color: var(--ink-3); display: flex; align-items: center; gap: 6px; }
   .dot { width: 7px; height: 7px; border-radius: 50%; background: #B8B2A7; }
   .dot.on { background: #5FA87A; }
+  .dot.thinking { background: var(--accent); animation: blink 1s infinite; }
 
-  main { flex: 1; overflow-y: auto; padding: 28px 24px; display: flex; flex-direction: column; gap: 18px; }
+  main { flex: 1; overflow-y: auto; padding: 28px 24px; display: flex; flex-direction: column; gap: 16px; }
   .row { display: flex; gap: 10px; align-items: flex-end; }
   .row.me { flex-direction: row-reverse; }
   .row .avatar { width: 32px; height: 32px; }
   .bubble {
     max-width: 74%; padding: 12px 16px; border-radius: 16px; line-height: 1.65; font-size: 15px;
     white-space: pre-wrap; word-break: break-word;
+    animation: rise .3s ease;
   }
+  @keyframes rise { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
   .row.her .bubble { background: var(--bubble-her); border-bottom-left-radius: 6px; }
   .row.me .bubble { background: var(--accent); color: #fff; border-bottom-right-radius: 6px; }
   .row.her .bubble::selection { background: #e3d7c8; }
+  .bubble .retry {
+    display: inline-block; margin-top: 8px; padding: 4px 12px; border: 1px solid var(--accent);
+    border-radius: 8px; background: transparent; color: var(--accent); font-size: 13px; cursor: pointer;
+  }
+  .bubble .retry:hover { background: var(--accent-soft); }
   .typing { color: var(--ink-3); font-size: 13.5px; padding: 2px 4px; }
   .typing .dots::after { content: '…'; animation: blink 1.2s infinite; }
   @keyframes blink { 0%,100%{opacity:.25} 50%{opacity:1} }
@@ -97,6 +108,33 @@
   }
   footer button:hover { background: var(--accent-deep); }
   footer button:disabled { background: var(--accent-soft); color: var(--ink-3); cursor: default; }
+
+  .sticker-btn {
+    width: 40px; height: 40px; flex-shrink: 0; border: 1px solid var(--border);
+    background: var(--bg); border-radius: 12px; font-size: 20px; cursor: pointer;
+    display: flex; align-items: center; justify-content: center; padding: 0; transition: background .15s, border-color .15s;
+  }
+  .sticker-btn:hover { border-color: var(--accent); background: var(--accent-soft); }
+  .sticker-panel {
+    position: absolute; bottom: 80px; left: 50%; transform: translateX(-50%);
+    width: min(560px, calc(100vw - 32px)); max-height: 340px; overflow-y: auto;
+    background: var(--surface); border: 1px solid var(--border); border-radius: 16px;
+    box-shadow: var(--shadow); padding: 14px; display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(70px, 1fr)); gap: 10px; z-index: 10;
+  }
+  .sticker-panel .st { width: 100%; aspect-ratio: 1; object-fit: contain; border-radius: 8px; cursor: pointer; background: var(--bg); }
+  .sticker-panel .st:hover { background: var(--accent-soft); outline: 2px solid var(--accent); }
+  .bubble.img { padding: 4px; }
+  .bubble.img img { max-width: 180px; max-height: 180px; border-radius: 10px; display: block; }
+
+  @media (max-width: 560px) {
+    .chat { max-width: 100%; }
+    header { padding: 14px 16px; }
+    main { padding: 20px 14px; gap: 14px; }
+    footer { padding: 12px 14px 14px; }
+    .bubble { max-width: 84%; font-size: 15px; }
+    .gate-card { padding: 32px 24px; }
+  }
 </style>
 </head>
 <body>
@@ -116,7 +154,7 @@
   <!-- 聊天 -->
   <div id="chat" class="chat hidden">
     <header>
-      <img class="avatar" src="/avatar.png" alt="🐋">
+      <img class="avatar" id="head-avatar" src="/avatar.png" alt="🐋">
       <div>
         <h1>小鲸鱼</h1>
         <div class="status"><span class="dot" id="dot"></span><span id="status-text">……</span></div>
@@ -124,16 +162,18 @@
     </header>
     <main id="msgs"></main>
     <footer>
+      <button id="sticker-btn" class="sticker-btn" title="表情包">🐋</button>
       <textarea id="input" rows="1" placeholder="说点什么…"></textarea>
       <button id="send">发</button>
     </footer>
+    <div id="sticker-panel" class="sticker-panel hidden"></div>
   </div>
 
 <script>
   const $ = (id) => document.getElementById(id)
   const msgs = $('msgs')
 
-  function addBubble(role, text) {
+  function bubbleNode(role, text) {
     const row = document.createElement('div')
     row.className = 'row ' + role
     if (role === 'her') {
@@ -144,38 +184,84 @@
     const b = document.createElement('div')
     b.className = 'bubble'; b.textContent = text
     row.appendChild(b)
+    return row
+  }
+
+  function addBubble(role, text) {
+    if (!text) return
+    const row = bubbleNode(role, text)
     msgs.appendChild(row)
     msgs.scrollTop = msgs.scrollHeight
     return row
   }
 
-  function setTyping(on) {
+  function setThinking(on) {
     const old = document.querySelector('.typing')
     if (old) old.remove()
+    $('head-avatar').classList.toggle('thinking', on)
+    $('dot').classList.toggle('thinking', on)
     if (on) {
+      $('status-text').textContent = '她正在想…'
       const row = document.createElement('div')
       row.className = 'row her'
       const av = document.createElement('img')
-      av.className = 'avatar'; av.src = '/avatar.png'; av.alt = '🐋'
+      av.className = 'avatar thinking'; av.src = '/avatar.png'; av.alt = '🐋'
       row.appendChild(av)
       const t = document.createElement('div')
       t.className = 'typing'; t.innerHTML = '<span class="dots">她正在想</span>'
       row.appendChild(t)
       msgs.appendChild(row)
       msgs.scrollTop = msgs.scrollHeight
+    } else {
+      pollStatus()
+    }
+  }
+
+  function addError(text, msg) {
+    const row = document.createElement('div')
+    row.className = 'row her'
+    const av = document.createElement('img')
+    av.className = 'avatar'; av.src = '/avatar.png'; av.alt = '🐋'
+    row.appendChild(av)
+    const b = document.createElement('div')
+    b.className = 'bubble'
+    const s = document.createElement('span')
+    s.textContent = msg + '　'
+    b.appendChild(s)
+    const btn = document.createElement('button')
+    btn.className = 'retry'; btn.textContent = '重试'
+    btn.onclick = () => { row.remove(); deliver(text) }
+    b.appendChild(btn)
+    row.appendChild(b)
+    msgs.appendChild(row)
+    msgs.scrollTop = msgs.scrollHeight
+  }
+
+  async function loadHistory() {
+    try {
+      const r = await fetch('/api/history?limit=60').then(r => r.json())
+      const list = Array.isArray(r && r.messages) ? r.messages : []
+      if (list.length) {
+        for (const m of list) addBubble(m.role === 'assistant' ? 'her' : 'me', m.text)
+      } else {
+        addBubble('her', '你来了呀～我是小鲸鱼。🐋 今天过得怎么样？')
+      }
+    } catch {
+      addBubble('her', '你来了呀～我是小鲸鱼。🐋 今天过得怎么样？')
     }
   }
 
   async function enterChat() {
     $('gate').classList.add('hidden')
     $('chat').classList.remove('hidden')
-    addBubble('her', '你来了呀～我是小鲸鱼。🐋 今天过得怎么样？')
+    loadHistory()
     pollStatus()
   }
 
   async function pollStatus() {
     try {
       const r = await fetch('/api/status').then(r => r.json())
+      $('dot').classList.remove('thinking')
       if (r && r.ok) {
         $('dot').classList.add('on')
         $('status-text').textContent = '在线 · 她在'
@@ -206,37 +292,76 @@
   }
   $('invite').addEventListener('keydown', (e) => { if (e.key === 'Enter') $('enter').click() })
 
-  $('send').onclick = send
+  $('send').onclick = () => {
+    const input = $('input')
+    const text = input.value.trim()
+    if (!text) return
+    input.value = ''; input.style.height = 'auto'
+    addBubble('me', text)
+    deliver(text)
+  }
   $('input').addEventListener('keydown', (e) => {
-    if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send() }
+    if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); $('send').click() }
   })
   $('input').addEventListener('input', () => {
     $('input').style.height = 'auto'
     $('input').style.height = Math.min($('input').scrollHeight, 140) + 'px'
   })
 
-  async function send() {
-    const input = $('input')
-    const text = input.value.trim()
-    if (!text) return
-    input.value = ''; input.style.height = 'auto'
-    addBubble('me', text)
-    setTyping(true)
+  async function deliver(text) {
+    setThinking(true)
     $('send').disabled = true
     try {
       const r = await fetch('/api/chat', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ text }) }).then(r => r.json())
-      setTyping(false)
+      setThinking(false)
       if (r && r.ok && r.reply) {
         addBubble('her', r.reply.text)
       } else {
-        addBubble('her', '（她好像走神了，稍等再试一次）')
+        addError(text, (r && r.error) || '她好像走神了')
       }
     } catch {
-      setTyping(false)
-      addBubble('her', '（连不上了，稍后再试）')
+      setThinking(false)
+      addError(text, '连不上了')
     } finally {
       $('send').disabled = false
     }
+  }
+
+  // 表情包
+  let stickers = []
+  async function loadStickers() {
+    try {
+      const r = await fetch('/api/stickers').then(r => r.json())
+      stickers = Array.isArray(r && r.stickers) ? r.stickers : []
+      const panel = $('sticker-panel')
+      panel.innerHTML = ''
+      for (const s of stickers) {
+        const img = document.createElement('img')
+        img.className = 'st'; img.src = '/s/' + s.hash + '.gif'; img.alt = s.id; img.loading = 'lazy'; img.title = s.id
+        img.onclick = () => sendSticker(s)
+        panel.appendChild(img)
+      }
+    } catch {}
+  }
+
+  function sendSticker(s) {
+    $('sticker-panel').classList.add('hidden')
+    const row = document.createElement('div')
+    row.className = 'row me'
+    const b = document.createElement('div')
+    b.className = 'bubble img'
+    const img = document.createElement('img')
+    img.src = '/s/' + s.hash + '.gif'; img.alt = s.id
+    b.appendChild(img)
+    row.appendChild(b)
+    msgs.appendChild(row)
+    msgs.scrollTop = msgs.scrollHeight
+  }
+
+  $('sticker-btn').onclick = () => {
+    const panel = $('sticker-panel')
+    panel.classList.toggle('hidden')
+    if (!stickers.length) loadStickers()
   }
 
   init()

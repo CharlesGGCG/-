@@ -1,5 +1,7 @@
 {
   "port": 8787,
   "inviteCode": "在这里填你的邀请码（一串随机字符）",
-  "hostFile": "C:/Users/<用户名>/.dsh/surfcore/pet/host.json"
+  "hostFile": "C:/Users/<用户名>/.dsh/surfcore/pet/host.json",
+  "stickerCatalog": "C:/Users/<用户名>/.dsh/profiles/web/node_modules/dsh-nekowhale-stickers/meta/nekowhale.json",
+  "stickerBase": "http://127.0.0.1:3080/x-nekowhale-stickers/s/"
 }

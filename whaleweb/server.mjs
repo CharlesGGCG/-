@@ -48,6 +48,30 @@ async function petStatus() {
   } catch { return { ok: false, online: false } }
 }
 
+async function petHistory(limit = 60) {
+  const h = readHost()
+  if (!h || !h.token) return { ok: false, messages: [] }
+  try {
+    const r = await fetch(`${h.baseUrl}${h.api}/history?limit=${limit}`, { headers: { 'x-pet-token': h.token } })
+    return await r.json()
+  } catch { return { ok: false, messages: [] } }
+}
+
+// 表情包：读 nekowhale 目录 + 代理 GIF
+const STICKER_CATALOG = String(cfg.stickerCatalog || path.join(HOME, '.dsh', 'profiles', 'web', 'node_modules', 'dsh-nekowhale-stickers', 'meta', 'nekowhale.json'))
+const STICKER_BASE = String(cfg.stickerBase || 'http://127.0.0.1:3080/x-nekowhale-stickers/s/').replace(/\/+$/, '')
+let stickerList = []
+try {
+  const cat = JSON.parse(fs.readFileSync(STICKER_CATALOG, 'utf8'))
+  stickerList = (Array.isArray(cat.stickers) ? cat.stickers : []).map((s) => ({
+    id: String((s.id || '').split('/').pop() || s.id),
+    hash: String(s.hash || ''),
+    emotion: String(s.emotion || ''),
+    tags: Array.isArray(s.tags) ? s.tags.slice(0, 6) : [],
+    text: String(s.text || ''),
+  })).filter((s) => s.hash)
+} catch { stickerList = [] }
+
 function parseCookies(req) {
   const out = {}
   const c = req.headers.cookie || ''
@@ -103,6 +127,31 @@ const server = http.createServer(async (req, res) => {
   if (p === '/api/status') {
     if (!authorized(req)) return send(res, 401, { ok: false, error: '请先输入邀请码' })
     return send(res, 200, await petStatus())
+  }
+
+  if (p === '/api/history') {
+    if (!authorized(req)) return send(res, 401, { ok: false, error: '请先输入邀请码' })
+    const limit = Math.min(100, Math.max(1, Number(url.searchParams.get('limit')) || 60))
+    return send(res, 200, await petHistory(limit))
+  }
+
+  if (p === '/api/stickers') {
+    if (!authorized(req)) return send(res, 401, { ok: false, error: '请先输入邀请码' })
+    return send(res, 200, { ok: true, count: stickerList.length, stickers: stickerList })
+  }
+
+  if (p.startsWith('/s/')) {
+    if (!authorized(req)) return send(res, 401, { ok: false, error: '请先输入邀请码' })
+    const hash = p.slice(3).replace(/\.gif$/i, '').replace(/[^a-f0-9]/gi, '')
+    if (!hash) return send(res, 404, 'not found', 'text/plain')
+    try {
+      const r = await fetch(`${STICKER_BASE}/${hash}.gif`)
+      if (!r.ok) return send(res, 404, 'not found', 'text/plain')
+      const buf = Buffer.from(await r.arrayBuffer())
+      res.writeHead(200, { 'content-type': 'image/gif', 'content-length': buf.length, 'cache-control': 'public, max-age=86400' })
+      res.end(buf)
+      return
+    } catch { return send(res, 502, 'proxy error', 'text/plain') }
   }
 
   if (p === '/') {
