@@ -89,6 +89,7 @@ import {
   effectiveVectorMemoryConfig, embedTexts, normalizeVectorMemoryConfig, rankVectorMemories,
   readVectorIndex, renderVectorRecallBlock, resolveVectorMemoryPaths,
 } from './vector-memory.js';
+import { getMemoryGraph, graphRecallBlock } from './memory-graph.js';
 import {
   activeMemoryPaths, activePersonaFile, activePlatformStateDir, characterPaths, readCurrentCharacter,
   readPersonaLayerText,
@@ -13522,7 +13523,10 @@ async function main() {
       const vectorBlock = typeof opts.vectorBlock === 'string'
         ? opts.vectorBlock
         : await vectorRecallBlockForWake(key).catch(() => '');
-      promptText = buildWakePromptV2(key, opts.wakeReason, vectorBlock);
+      const graphBlock = typeof opts.graphBlock === 'string'
+        ? opts.graphBlock
+        : await graphRecallBlockForWake(key).catch(() => '');
+      promptText = buildWakePromptV2(key, opts.wakeReason, vectorBlock, graphBlock);
       wakeSnapshot = buildWakeSnapshotV2(key);
       if (wakeSnapshot) {
         promptText += `\n\n【本次消息快照】\n${JSON.stringify(wakeSnapshot)}\n以上消息已提供，无需重复查询；partial=true 时用 qq_get_context_snapshot(afterSeq=readThroughSeq, include=["unread"]) 继续读取。先处理当前消息；回复前如需确认后续补充，用 qq_wait_for_messages(purpose="reply") 补足短静默，已安静够久会立即返回，不要先长等。收尾只确认你已处理的 readThroughSeq（本地 seq，非 QQ messageId），传给 qq_mark_read 或 qq_set_wake_config 的 throughSeq；新到消息留待处理。`;
@@ -14076,6 +14080,19 @@ async function main() {
         `[向量记忆] 检索失败（${error?.code ?? 'vector.recall-failed'}）：${error?.message ?? error}`);
       return '';
     }
+  }
+
+  /** 记忆图谱：按当前最后一条非自身消息召回，失败/未就绪时返回空串（不阻塞唤醒）。 */
+  async function graphRecallBlockForWake(key) {
+    const st = getSocialV2State(key);
+    const candidates = [
+      ...(Array.isArray(st?.unread) ? st.unread : []),
+      ...(Array.isArray(st?.recentMessages) ? st.recentMessages : []),
+    ].filter((message) => message && message.isSelf !== true);
+    candidates.sort((a, b) => (Number(b.time) || Number(b.seq) || 0) - (Number(a.time) || Number(a.seq) || 0));
+    const query = String(candidates[0]?.text || candidates[0]?.plain || '').trim().slice(0, 300);
+    if (query.length < 2) return '';
+    return graphRecallBlock(query).catch(() => '');
   }
 
   // 按仿真模式取用：先用标题里的 〔一代〕/〔二代〕 标记筛掉另一模式的专属小节，
@@ -15222,7 +15239,7 @@ async function main() {
     return `【当前角色】${name}\n${card}\n（完整角色卡 / 场景语气 / 推荐值 / 可用工具：可调用 qq_get_prompt 查看）\n\n`;
   }
 
-  function buildWakePromptV2(key, reason, vectorBlock = '') {
+  function buildWakePromptV2(key, reason, vectorBlock = '', graphBlock = '') {
     const roleState = readRoleState();
     const roleLine = personaWakeBlockV2(key);
     // B站 记忆简报关掉时（biliBridge.memory.enabled=false），B站 侧的自我锚点会整段消失；
@@ -15360,7 +15377,7 @@ async function main() {
     if (moodNoteNow && !ownerParts.includes(moodNoteNow)) ownerParts.push(moodNoteNow);
     const ownerBlock = ownerParts.length ? `〔主人〕\n${ownerParts.map((t) => `- ${t}`).join('\n')}` : '';
 
-    // 〔我还记着〕：话题/印象/想说没说的
+    // 〔我还记着〕：话题/印象/想说没说的 + 记忆图谱召回
     const memParts = [];
     for (const t of (Array.isArray(st.activeTopics) ? st.activeTopics : []).filter((t) => t && t.text).slice(-4)) memParts.push(`- ${t.text}`);
     const impsNow = st.memberImpressions && typeof st.memberImpressions === 'object' ? st.memberImpressions : {};
@@ -15370,6 +15387,7 @@ async function main() {
       if (traits.length) memParts.push(`- 对${name}的印象：${traits.join('、')}`);
     }
     for (const t of (Array.isArray(st.pendingThoughts) ? st.pendingThoughts : []).filter((t) => t && t.text).slice(-3)) memParts.push(`- 想说没说的：${t.text}`);
+    if (graphBlock && String(graphBlock).trim()) memParts.push(String(graphBlock).trim());
     const rememberBlock = memParts.length ? `〔我还记着〕\n${memParts.join('\n')}` : '';
 
     // 〔现在〕
@@ -15706,6 +15724,9 @@ async function main() {
     const vectorBlock = engineMode() === 'machine'
       ? ''
       : await vectorRecallBlockForWake(key).catch(() => '');
+    const graphBlock = engineMode() === 'machine'
+      ? ''
+      : await graphRecallBlockForWake(key).catch(() => '');
     const promptText = '';
     log(`[reserved2] 唤醒 ${key}（${reason}）`);
     const rollbackWakeTime = () => {
@@ -15720,7 +15741,7 @@ async function main() {
     try {
       pendingWakeKeys.add(key);
       armPendingWakeLease(key);
-      const result = await deliverPrompt(key, promptText, { wakeReason: reason, vectorBlock });
+      const result = await deliverPrompt(key, promptText, { wakeReason: reason, vectorBlock, graphBlock });
       const restoreFiniteSleep = () => {
         if (hadFiniteSleep) {
           st.wakeConfig.sleepUntil = prevSleepUntil;
@@ -16431,6 +16452,12 @@ async function main() {
         conversationKey: key,
         text: body,
       });
+      // 记忆图谱：把这一问一答喂给图谱（fire-and-forget，不阻塞）
+      getMemoryGraph().then((mg) => {
+        const st2 = getSocialV2State(key);
+        const lastUser = [...(Array.isArray(st2?.recentMessages) ? st2.recentMessages : [])].reverse().find((m) => m && !m.isSelf);
+        mg.enqueue({ userMessage: String(lastUser?.text || lastUser?.plain || ''), aiResponse: body });
+      }).catch(() => {});
     } catch {}
   }
 
