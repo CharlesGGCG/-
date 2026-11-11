@@ -1,0 +1,14 @@
+{
+  "provider": "surfcore",
+  "siliconflow": {
+    "baseUrl": "https://api.siliconflow.cn/v1",
+    "apiKey": "",
+    "chatModel": "deepseek-ai/DeepSeek-V3"
+  },
+  "vectorMemory": {
+    "provider": "local",
+    "model": "bge-m3",
+    "modelSpace": "bge-m3@1024-f16-v1"
+  },
+  "dim": 1024
+}
