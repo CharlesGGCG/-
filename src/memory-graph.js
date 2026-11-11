@@ -131,4 +131,30 @@ export async function openMemoryGraph({ dir, provider, persona = {}, batchSize =
   }
 }
 
+// 懒加载单例：进程内共享一个引擎（插件进程 / 桥接进程各自一个，读写同一份数据目录）
+let _singleton = null
+export async function getMemoryGraph() {
+  if (_singleton) return _singleton
+  const cfg = loadMemoryGraphConfig()
+  const dir = String(cfg.dir || '').trim() || path.join(os.homedir(), '.dsh', 'surfcore', 'memory-graph')
+  _singleton = await openMemoryGraph({
+    dir,
+    provider: cfg,
+    persona: { personaName: String(cfg.personaName || '小鲸鱼'), genderTerm: String(cfg.genderTerm || '主人') },
+    batchSize: Number(cfg.batchSize) || 2,
+  })
+  return _singleton
+}
+
+/** 召回并渲染成提示词块；任何失败都退化成空串（记忆是锦上添花，坏掉不报错）。 */
+export async function graphRecallBlock(text, { maxChars = 600 } = {}) {
+  try {
+    const g = await getMemoryGraph()
+    const { promptText } = await g.recall(text)
+    const s = String(promptText || '').trim()
+    if (!s) return ''
+    return s.length > maxChars ? `${s.slice(0, Math.max(0, maxChars - 1))}…` : s
+  } catch { return '' }
+}
+
 export { providers }

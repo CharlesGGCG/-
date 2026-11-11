@@ -44,6 +44,7 @@ import {
   effectiveVectorMemoryConfig, embedTexts, normalizeVectorMemoryConfig, rankVectorMemories,
   readVectorIndex, renderVectorRecallBlock, resolveVectorMemoryPaths,
 } from '../../../src/vector-memory.js'
+import { graphRecallBlock } from '../../../src/memory-graph.js'
 import { interactEnabled } from '../tools/lib/interact.mjs'
 import { biliSessionCreateParams } from './bili-workspace.js'
 
@@ -591,6 +592,19 @@ export function startScheduler(ctx, opts) {
       const block = await vectorRecallBlockForBili(args)
       if (block && Array.isArray(args?.content)) {
         args = { ...args, content: [{ type: 'text', text: block }, ...args.content] }
+      }
+    } catch {}
+    // 记忆图谱：把「想起的旧事」插到最前面；失败不阻塞 B站。
+    try {
+      const text = (Array.isArray(args?.content) ? args.content : [])
+        .filter((item) => item && item.type === 'text')
+        .map((item) => String(item.text ?? ''))
+        .join('\n').trim().slice(-600)
+      if (text.length >= 2) {
+        const gblock = await graphRecallBlock(text)
+        if (gblock && Array.isArray(args?.content)) {
+          args = { ...args, content: [{ type: 'text', text: gblock }, ...args.content] }
+        }
       }
     } catch {}
     return ctx.sessionController.prompt(args, signal)
