@@ -1,0 +1,5 @@
+{
+  "port": 8787,
+  "inviteCode": "在这里填你的邀请码（一串随机字符）",
+  "hostFile": "C:/Users/<用户名>/.dsh/surfcore/pet/host.json"
+}

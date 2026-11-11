@@ -80,3 +80,6 @@ dist/*.zip
 # embedding runtime local pid/log
 plugins/surfcore/runtime/service.pid
 plugins/surfcore/runtime/service.log
+
+# 邀请制 Web 的实际配置（含邀请码，不入库）
+whaleweb/config.json
