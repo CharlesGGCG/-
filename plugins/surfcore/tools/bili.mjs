@@ -23,6 +23,7 @@ const map = {
   'watch-video': ['commands/bili-watch.mjs', '真"看"视频：取直链 → 下载 → ffmpeg 抽帧拼九宫格 → 交给 read_image：<BV> [3x3|4x4] [--uniform] [--keep-mp4]'],
   debrief: ['commands/debrief.mjs', '看懂一条视频（一条龙）：封面+简介+官方字幕+弹幕热区(对齐字幕)+热评+画面抽帧：<BV> [--bucket 30] [--top 5] [--grid 3x3] [--no-frames] [--substrip] [--keep-mp4]'],
   feed: ['commands/feed.mjs', '选题器（只读）：按偏好权重分配名额、排除看过的/最近推过的：--n 6 [--per 2] [--pages 3] [--source all] [--json]'],
+  scan: ['commands/bili-scan.mjs', '子代理刷 B站：feed 选题 + 逐条 debrief（纯文本）→ 输出报告：--n 5 [--source rcmd] [--json]'],
   prefs: ['commands/prefs.mjs', '抓取偏好关键词（只读）：scan [--target fish|owner|both] [--sources history,favorites,local] [--limit 24] [--json]'],
   quota: ['commands/quota.mjs', '限额闸（B 档「限额自主」的代码强制部分）：status / check --auto|--share / record / set --daily N / allow <范围>'],
   'fish-guard': ['commands/fish-guard.mjs', '评论区鱼群保护：status / plan / like --bvid BV...（或 --oid <aid>）[--json] [--dry]；抓评论会带登录态，点赞失败原因会落盘'],
