@@ -28,17 +28,19 @@ function l2norm(vector, dimension) {
   return out
 }
 
-/** chat → SiliconFlow，embed → 本地 bge-m3。 */
+/** chat → SiliconFlow；embed → SiliconFlow（默认）或本地 bge-m3（`embed: 'local'`）。 */
 function surfcoreProvider(cfg = {}) {
   const sf = cfg.siliconflow && typeof cfg.siliconflow === 'object' ? cfg.siliconflow : {}
   const baseUrl = String(sf.baseUrl || 'https://api.siliconflow.cn/v1').replace(/\/+$/, '')
   const apiKey = String(sf.apiKey || '')
   const chatModel = String(sf.chatModel || 'deepseek-ai/DeepSeek-V3')
+  const embedModel = String(sf.embedModel || 'BAAI/bge-m3')
+  const embedMode = String(cfg.embed || 'siliconflow') === 'local' ? 'local' : 'siliconflow'
   const vectorCfg = normalizeVectorMemoryConfig(cfg.vectorMemory || {})
   const dim = Number(cfg.dim) || 1024
 
   return {
-    name: 'surfcore(siliconflow-chat + local-embed)',
+    name: `surfcore(siliconflow-chat + ${embedMode}-embed)`,
     dim,
 
     async chat(messages, o = {}) {
@@ -60,8 +62,20 @@ function surfcoreProvider(cfg = {}) {
 
     async embed(texts) {
       const list = Array.isArray(texts) ? texts : [texts]
-      const { vectors, dimension } = await embedTexts({ config: vectorCfg, texts: list })
-      return vectors.map((v) => l2norm(v, dimension))
+      if (embedMode === 'local') {
+        const { vectors, dimension } = await embedTexts({ config: vectorCfg, texts: list })
+        return vectors.map((v) => l2norm(v, dimension))
+      }
+      const res = await fetch(`${baseUrl}/embeddings`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', authorization: `Bearer ${apiKey}` },
+        body: JSON.stringify({ model: embedModel, input: list, encoding_format: 'float' }),
+      })
+      const data = await res.json()
+      if (!res.ok) throw new Error(`SiliconFlow embed HTTP ${res.status}: ${JSON.stringify(data).slice(0, 200)}`)
+      const rows = [...(data?.data || [])].sort((a, b) => (a.index ?? 0) - (b.index ?? 0))
+      if (rows.length !== list.length) throw new Error('SiliconFlow embed 返回数量不符')
+      return rows.map((r) => l2norm(r.embedding, dim))
     },
   }
 }
